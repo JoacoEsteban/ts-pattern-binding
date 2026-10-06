@@ -210,6 +210,111 @@ describe('binding', () => {
   })
 })
 
+describe('supplied patterns', () => {
+  it('creates a Binding instance through the factory or constructor', () => {
+    expect(binding(P.string)).toBeInstanceOf(Binding)
+    expect(new Binding(P.string)).toBeInstanceOf(Binding)
+  })
+
+  it('requires the bound value to match the pattern', () => {
+    const { bind, ref } = binding(P.string)
+
+    expect(isMatching([bind, ref], ['same', 'same'])).toBe(true)
+    expect(isMatching([bind, ref], ['first', 'second'])).toBe(false)
+    expect(isMatching([bind, ref], [42, 42])).toBe(false)
+  })
+
+  it('retains the previous value after a rejected bind', () => {
+    const { bind, ref } = binding(P.string)
+
+    expect(isMatching(bind, 'customer-123')).toBe(true)
+    expect(isMatching(bind, 42)).toBe(false)
+    expect(isMatching(ref, 'customer-123')).toBe(true)
+    expect(isMatching(ref, 42)).toBe(false)
+  })
+
+  it('keeps Object.is equality for constrained values', () => {
+    const { bind, ref } = binding(P.number)
+
+    expect(isMatching([bind, ref], [NaN, NaN])).toBe(true)
+    expect(isMatching([bind, ref], [0, -0])).toBe(false)
+  })
+
+  it('distinguishes an omitted pattern from a literal undefined pattern', () => {
+    const unconstrained = binding()
+    const constrained = binding(undefined)
+    const constructed = new Binding(undefined)
+
+    expect(isMatching(unconstrained.bind, 42)).toBe(true)
+    expect(isMatching(constrained.bind, 42)).toBe(false)
+    expect(isMatching(constrained.ref, undefined)).toBe(false)
+    expect(
+      isMatching([constrained.bind, constrained.ref], [undefined, undefined])
+    ).toBe(true)
+    expect(isMatching(constructed.bind, 42)).toBe(false)
+    expect(
+      isMatching([constructed.bind, constructed.ref], [undefined, undefined])
+    ).toBe(true)
+  })
+
+  it('supports literal and union patterns', () => {
+    const { bind: literalBind, ref: literalRef } = binding('customer-123')
+    const { bind: unionBind, ref: unionRef } = binding(
+      P.union(P.string, P.number)
+    )
+
+    expect(isMatching(literalBind, 'customer-456')).toBe(false)
+    expect(
+      isMatching([literalBind, literalRef], ['customer-123', 'customer-123'])
+    ).toBe(true)
+    expect(isMatching([unionBind, unionRef], ['same', 'same'])).toBe(true)
+    expect(isMatching([unionBind, unionRef], [42, 42])).toBe(true)
+    expect(isMatching([unionBind, unionRef], [true, true])).toBe(false)
+  })
+
+  it('checks partial string patterns before binding', () => {
+    const { bind, ref } = binding(P.string.regex(/^customer-/))
+
+    expect(isMatching([bind, ref], ['customer-123', 'customer-123'])).toBe(true)
+    expect(isMatching([bind, ref], ['different', 'different'])).toBe(false)
+  })
+
+  it('checks the current shape of a retained object at ref', () => {
+    const { bind, ref } = binding({ id: P.string })
+    const value: { id: unknown } = { id: 'customer-123' }
+
+    expect(isMatching(bind)(value)).toBe(true)
+    expect(isMatching(ref)(value)).toBe(true)
+    expect(isMatching(ref)({ id: 'customer-123' })).toBe(false)
+    value.id = 42
+    expect(isMatching(ref)(value)).toBe(false)
+    value.id = 'customer-456'
+    expect(isMatching(ref)(value)).toBe(true)
+  })
+
+  it('supports array patterns and rejects a changed element type', () => {
+    const { bind, ref } = binding(P.array(P.string))
+    const value: unknown[] = ['first', 'second']
+
+    expect(isMatching(bind, value)).toBe(true)
+    expect(isMatching(ref, value)).toBe(true)
+    value.push(42)
+    expect(isMatching(ref, value)).toBe(false)
+  })
+
+  it('resets a constrained binding without replacing its patterns', () => {
+    const current = binding(P.string)
+    const { bind, ref } = current
+
+    expect(isMatching([bind, ref], ['same', 'same'])).toBe(true)
+    current.reset()
+    expect(isMatching(ref, 'same')).toBe(false)
+    expect(current.bind).toBe(bind)
+    expect(current.ref).toBe(ref)
+    expect(isMatching([bind, ref], ['next', 'next'])).toBe(true)
+  })
+})
+
 describe('ts-pattern integration', () => {
   it('matches the original nested-object example', () => {
     const { bind, ref } = binding<string>()

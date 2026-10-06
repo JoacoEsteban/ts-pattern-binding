@@ -3,29 +3,42 @@
 Bind a value at one position in a [ts-pattern](https://github.com/gvergnaud/ts-pattern) pattern.
 Require the same value at later positions.
 
+For example, an order and its payment must have the same customer ID:
+
 ```ts
-import { match } from 'ts-pattern'
+import { P, match } from 'ts-pattern'
 import { binding } from 'ts-pattern-binding'
 
-const current = binding<string>()
+const order = { customer: { id: 'customer-123' } }
+const payment = { customer: { id: 'customer-123' } }
+const { bind, ref } = binding(P.string)
 
-const result = match({
-  a: { current: 'same' },
-  b: { current: 'same' }
-})
+const result = match({ order, payment })
   .with(
     {
-      a: { current: current.bind },
-      b: { current: current.ref }
+      order: { customer: { id: bind } },
+      payment: { customer: { id: ref } }
     },
-    () => 'same'
+    () => true
   )
-  .otherwise(() => 'different')
+  .otherwise(() => false)
 ```
 
-`bind` stores the value and always matches.
-`ref` matches only after a bind, and only when `Object.is` returns `true`.
-Several references can compare against one bind.
+`result` is `true`.
+If the payment's customer ID is `'customer-456'`, the result is `false`.
+
+`bind` requires `order.customer.id` to be a string and stores it.
+`ref` requires `payment.customer.id` to equal that stored string, using `Object.is`.
+Both fields belong to one pattern passed to `.with`.
+`bind` and `ref` are pattern values, so neither needs `()`.
+
+The pattern argument is optional.
+`binding(P.string)` narrows both positions to `string`, including refs in the handler.
+`binding()` accepts any value and leaves unknown inputs as `unknown`.
+
+Place `bind` before `ref` in the pattern.
+Create a fresh binding for each match operation.
+The [state lifetime rules](#evaluation-order-and-state-lifetime) explain reuse and more complex patterns.
 
 ## Install
 
@@ -43,9 +56,12 @@ Elixir supports repeated variables within one pattern.
 Each occurrence must match the same value:
 
 ```elixir
-case %{a: %{current: "same"}, b: %{current: "same"}} do
-  %{a: %{current: current}, b: %{current: current}} -> :same
-  _ -> :different
+order = %{customer: %{id: "customer-123"}}
+payment = %{customer: %{id: "customer-123"}}
+
+case %{order: order, payment: payment} do
+  %{order: %{customer: %{id: customer_id}}, payment: %{customer: %{id: customer_id}}} -> true
+  _ -> false
 end
 ```
 
@@ -59,7 +75,7 @@ ts-pattern accepts patterns made from JavaScript values and matcher objects.
 JavaScript evaluates a variable before ts-pattern receives the pattern.
 Repeated JavaScript references therefore represent existing values, rather than variables that ts-pattern can bind during a match.
 
-`P.select('current')` passes a value to the handler.
+`P.select('customerId')` passes a value to the handler.
 It does not impose an equality constraint on another position with the same selection name.
 `P.when` receives the value at its own position.
 It does not receive sibling values or a shared variable environment.
@@ -75,17 +91,26 @@ ts-pattern can already express the same condition with a guard on the whole inpu
 ```ts
 import { P, match } from 'ts-pattern'
 
-const result = match({
-  a: { current: 'same' },
-  b: { current: 'same' }
-})
+const order = { customer: { id: 'customer-123' } }
+const payment = { customer: { id: 'customer-123' } }
+
+const result = match({ order, payment })
   .with(
-    { a: { current: P.string }, b: { current: P.string } },
-    ({ a: { current: first }, b: { current: second } }) =>
-      Object.is(first, second),
-    () => 'same'
+    {
+      order: { customer: { id: P.string } },
+      payment: { customer: { id: P.string } }
+    },
+    ({
+      order: {
+        customer: { id: orderCustomerId }
+      },
+      payment: {
+        customer: { id: paymentCustomerId }
+      }
+    }) => Object.is(orderCustomerId, paymentCustomerId),
+    () => true
   )
-  .otherwise(() => 'different')
+  .otherwise(() => false)
 ```
 
 `binding` places each equality constraint beside the field that it concerns.
@@ -93,30 +118,36 @@ This form is useful for nested patterns and several independent constraints.
 
 ## API
 
-### `binding<T = unknown>(): Binding<T>`
+### `binding(pattern?)`
 
 Each call creates an independent binding.
 The returned instance contains stable, readonly `bind` and `ref` patterns.
+An optional ts-pattern pattern constrains both positions and supplies their inferred type.
+Without a pattern, `bind` accepts any value and `ref` only requires equality.
 
 ```ts
 import { isMatching } from 'ts-pattern'
 import { binding } from 'ts-pattern-binding'
 
-const { bind, ref } = binding<number>()
+const { bind, ref } = binding()
 
-isMatching([bind, ref, ref], [42, 42, 42])
-isMatching([bind, ref, ref], [42, 42, 43])
+const allEqual = isMatching([bind, ref, ref], [42, 42, 42])
 ```
 
-The first call returns `true`.
-The second call returns `false`.
-Each visit to `bind` replaces the stored value.
+`allEqual` is `true`.
+If the last value is `43`, the pattern fails.
+The first position stores `42`.
+Both references must match that value.
+Each successful visit to `bind` replaces the stored value.
+A value that fails the supplied pattern leaves the previous binding unchanged.
 `ref` never changes the stored value.
 
-### `new Binding<T = unknown>()`
+### `new Binding(pattern?)`
 
 The class constructor is equivalent to the factory.
 Instances support `instanceof Binding`.
+`new Binding(P.string)` infers string patterns.
+`new Binding()` leaves unknown inputs as `unknown`.
 
 ### `reset(): void`
 
@@ -125,17 +156,22 @@ Every reference then fails until the next bind.
 The existing pattern objects remain valid.
 
 ```ts
-const current = binding()
-const { bind, ref } = current
+import { isMatching } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
 
-isMatching([bind, ref], [undefined, undefined])
-current.reset()
-isMatching(ref, undefined)
+const customerId = binding()
+const { bind, ref } = customerId
+
+isMatching(bind, 'customer-123')
+const beforeReset = isMatching(ref, 'customer-123')
+customerId.reset()
+const afterReset = isMatching(ref, 'customer-123')
 ```
 
-The first match succeeds.
-After the reset, the reference fails.
+`beforeReset` is `true`.
+`afterReset` is `false`, even though the customer ID is unchanged.
 The state distinguishes an unbound value from a bound `undefined`.
+Before a reset, `ref` can match a bound `undefined`.
 
 ## Equality
 
@@ -154,44 +190,88 @@ This choice preserves the original helper's behavior.
 Elixir compares terms by value, including maps and lists.
 JavaScript objects use reference identity here.
 
-## Types and selections
+## Selections
 
-`T` records the intended input type.
-It does not validate a runtime value or narrow an unknown input to that type.
-Handler types come from the original input and actual runtime guards.
-This avoids an unchecked assertion that a value is a string because the caller wrote `binding<string>()`.
-
-For unknown inputs, combine the patterns with runtime guards:
+`P.select` passes the matching customer ID to the handler:
 
 ```ts
-const { bind, ref } = binding<string>()
-const input: unknown = { a: 'same', b: 'same' }
+import { P, match } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
+
+const order = { customer: { id: 'customer-123' } }
+const payment = { customer: { id: 'customer-123' } }
+const { bind, ref } = binding(P.string)
+
+const result = match({ order, payment })
+  .with(
+    {
+      order: { customer: { id: P.select('customerId', bind) } },
+      payment: { customer: { id: ref } }
+    },
+    ({ customerId }) => customerId
+  )
+  .otherwise(() => 'Customer IDs differ')
+```
+
+`result` is `'customer-123'`.
+`P.select('customerId', bind)` stores the value and selects it for the handler.
+`ref` requires the payment's customer ID to match that value.
+
+## Types and runtime guards
+
+The supplied pattern determines the runtime constraint and the inferred types of both matchers.
+Strings, literals, unions, arrays, and object patterns retain the types that ts-pattern infers.
+`ref` checks the pattern again after equality succeeds.
+This checks the current shape of a retained object if its contents change.
+
+For unknown inputs, pass the runtime pattern to `binding`:
+
+```ts
+import { P, match } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
+
+const { bind, ref } = binding(P.string)
+const input: unknown = {
+  order: { customer: { id: 'customer-123' } },
+  payment: { customer: { id: 'customer-123' } }
+}
 
 const result = match(input)
   .with(
     {
-      a: P.intersection(P.string, bind),
-      b: P.intersection(P.string, ref)
+      order: { customer: { id: bind } },
+      payment: { customer: { id: ref } }
     },
-    ({ a }) => a.toUpperCase()
+    ({
+      payment: {
+        customer: { id }
+      }
+    }) => id.toUpperCase()
   )
-  .otherwise(() => 'different')
+  .otherwise(() => 'Invalid or different customer IDs')
 ```
+
+`result` is `'CUSTOMER-123'`.
+Both customer IDs have type `string` in the handler.
+The handler uses the payment's ID, which matched `ref`.
+Equal numbers fail the supplied string pattern.
+
+Without a pattern, both matchers leave unknown values as `unknown`.
+The existing `binding<T>()` and `new Binding<T>()` forms still record an intended input type without runtime validation.
+For example, `binding<string>()` accepts equal numbers and does not narrow unknown inputs to strings.
+A separate `P.intersection(P.string, bind)` guard does not change a reference's inferred type.
+
+`binding(undefined)` requires a literal `undefined` value.
+Omitting the argument with `binding()` accepts any value.
+Selections inside a supplied pattern do not pass values to the handler.
+Use `P.select` around `bind` or `ref` to select a value.
 
 An equality-dependent branch does not make a match exhaustive.
 It still needs a fallback or other branches that cover the remaining inputs.
+`bind` also requires a fallback because a supplied pattern can accept only part of its inferred type.
 
-`bind` also works inside a selection:
-
-```ts
-const { bind, ref } = binding<string>()
-
-const result = match({ a: 'same', b: 'same' })
-  .with({ a: P.select('current', bind), b: ref }, ({ current }) => current)
-  .otherwise(() => 'different')
-```
-
-`BindingPattern<T>` and `ReferencePattern<T>` are exported for explicit annotations.
+`BindingPattern<T, Narrowed>` and `ReferencePattern<T, Narrowed>` are exported for explicit annotations.
+`Narrowed` defaults to `unknown`.
 
 ## Evaluation order and state lifetime
 
@@ -204,23 +284,28 @@ The [ts-pattern matcher implementation](https://github.com/gvergnaud/ts-pattern/
 For ordinary object keys, place the bind before the references:
 
 ```ts
-const { bind, ref } = binding<string>()
+import { P, isMatching } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
 
-isMatching({ a: bind, b: ref }, { a: 'same', b: 'same' })
+const order = { customer: { id: 'customer-123' } }
+const payment = { customer: { id: 'customer-123' } }
+const { bind, ref } = binding(P.string)
+
+const result = isMatching(
+  {
+    order: { customer: { id: bind } },
+    payment: { customer: { id: ref } }
+  },
+  { order, payment }
+)
 ```
 
-A fresh binding fails for the reversed pattern, `{ b: ref, a: bind }`.
+`result` is `true`.
+A fresh binding fails if the pattern visits `payment.customer.id` before `order.customer.id`.
 Input property order does not change pattern order.
 
-Create a fresh binding inside each match operation:
-
-```ts
-const equalCurrent = (a: string, b: string): boolean => {
-  const { bind, ref } = binding<string>()
-
-  return isMatching({ a: bind, b: ref }, { a, b })
-}
-```
+Create a fresh binding inside each match operation.
+If a function performs the match, create the binding inside the function.
 
 The matcher API does not notify these patterns when an enclosing branch fails or a match finishes.
 A failed property, reference, or guard does not undo a previous bind.
@@ -230,7 +315,8 @@ Each binding therefore needs its own lifetime.
 - Use separate bindings for separate `.with` branches and union alternatives.
 - Place one bind before its references on every evaluation path.
 - If a pattern repeats in `P.array`, make sure that each element visits its bind before its references.
-- Avoid `bind` inside `P.not` or an optional pattern that can skip it.
+- Avoid `bind` or `ref` inside `P.not`.
+- Avoid `bind` inside an optional pattern that can skip it.
 - Avoid a shared binding across concurrent calls or nested matches.
 - If you retain a binding, call `reset` before a new independent operation.
 

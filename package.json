@@ -1,6 +1,6 @@
 {
   "name": "ts-pattern-binding",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Bind a value in a ts-pattern pattern and compare later positions, inspired by Elixir's repeated variables.",
   "type": "module",
   "license": "MIT",

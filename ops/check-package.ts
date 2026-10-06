@@ -91,6 +91,13 @@ assert.equal(match({ a: 'same', b: 'same' })
   .otherwise(() => 'different'), 'same')
 current.reset()
 assert.equal(isMatching(ref, 'same'), false)
+
+const { bind: stringBind, ref: stringRef } = binding(P.string)
+assert.equal(isMatching([stringBind, stringRef], ['same', 'same']), true)
+assert.equal(isMatching([stringBind, stringRef], [42, 42]), false)
+const { bind: undefinedBind, ref: undefinedRef } = new Binding(undefined)
+assert.equal(isMatching([undefinedBind, undefinedRef], [undefined, undefined]), true)
+assert.equal(isMatching(undefinedBind, 42), false)
 `
 
 writeFileSync(join(directory, 'smoke.mjs'), smoke)
@@ -117,7 +124,7 @@ for (const file of ['smoke.mjs', 'smoke.cjs']) {
 
 const consumer = `
 import { Binding, binding } from 'ts-pattern-binding'
-import { match } from 'ts-pattern'
+import { P, match } from 'ts-pattern'
 
 const current: Binding<string> = binding<string>()
 const { bind, ref } = current
@@ -125,7 +132,29 @@ const result: string = match({ a: 'same', b: 'same' })
   .with({ a: bind, b: ref }, ({ a }) => a)
   .otherwise(() => 'different')
 current.reset()
-console.log(result)
+
+const input: unknown = {
+  order: { customer: { id: 'customer-123' } },
+  payment: { customer: { id: 'customer-123' } }
+}
+const { bind: stringBind, ref: stringRef } = binding(P.string)
+const constrainedResult: string = match(input)
+  .with(
+    {
+      order: { customer: { id: stringBind } },
+      payment: { customer: { id: stringRef } }
+    },
+    ({
+      order: { customer: { id: orderId } },
+      payment: { customer: { id: paymentId } }
+    }) => orderId.toUpperCase() + paymentId.toUpperCase()
+  )
+  .otherwise(() => 'different')
+const { bind: constructorBind, ref: constructorRef } = new Binding(P.string)
+const constructorResult: string = match<unknown>(['same', 'same'])
+  .with([constructorBind, constructorRef], ([first, second]) => first + second)
+  .otherwise(() => 'different')
+console.log(result, constrainedResult, constructorResult)
 `
 
 for (const file of ['consumer.mts', 'consumer.cts']) {

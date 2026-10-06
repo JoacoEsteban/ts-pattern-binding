@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0
+
+- Accept an optional ts-pattern pattern in `binding` and `new Binding`.
+- Infer the supplied pattern's type for both `bind` and `ref`, including refs in handlers and selections.
+- Validate constrained values before a bind and recheck matching refs, including retained objects whose contents change.
+- Preserve unknown inference when no pattern is supplied and keep existing generic calls compatible.
+- Keep partial patterns non-exhaustive, including regular-expression guards.
+- Replace the README examples with nested order and payment customer IDs.
+
 ## 0.1.1
 
 - Publish through GitHub Actions with npm provenance.

@@ -1,4 +1,4 @@
-import { P, match } from 'ts-pattern'
+import { P, isMatching, match } from 'ts-pattern'
 import { describe, expectTypeOf, it } from 'vitest'
 
 import { Binding, binding } from '../src/index.js'
@@ -74,6 +74,114 @@ describe('public types', () => {
         }
       )
       .otherwise(() => undefined)
+  })
+
+  it('infers the supplied pattern for both bind and ref', () => {
+    const { bind, ref } = binding(P.string)
+    const input: unknown = {
+      order: { customer: { id: 'customer-123' } },
+      payment: { customer: { id: 'customer-123' } }
+    }
+
+    expectTypeOf(isMatching(bind)).guards.toBeString()
+    expectTypeOf(isMatching(ref)).guards.toBeString()
+
+    match(input)
+      .with(
+        {
+          order: { customer: { id: bind } },
+          payment: { customer: { id: ref } }
+        },
+        ({
+          order: {
+            customer: { id: orderId }
+          },
+          payment: {
+            customer: { id: paymentId }
+          }
+        }) => {
+          expectTypeOf(orderId).toBeString()
+          expectTypeOf(paymentId).toBeString()
+
+          return paymentId.toUpperCase()
+        }
+      )
+      .otherwise(() => undefined)
+  })
+
+  it('infers constructor patterns and requires a pattern for narrowed types', () => {
+    const { bind, ref } = new Binding(P.string)
+
+    expectTypeOf(isMatching(bind)).guards.toBeString()
+    expectTypeOf(isMatching(ref)).guards.toBeString()
+    expectTypeOf(
+      Binding<unknown, typeof P.string>
+    ).constructorParameters.toEqualTypeOf<[pattern: typeof P.string]>()
+  })
+
+  it('infers literal, undefined, union, object, and array patterns', () => {
+    const { ref: literalRef } = binding('customer-123')
+    const { ref: undefinedRef } = binding(undefined)
+    const { ref: unionRef } = binding(P.union(P.string, P.number))
+    const { ref: objectRef } = binding({ id: P.string })
+    const { ref: arrayRef } = binding(P.array(P.string))
+
+    expectTypeOf(isMatching(literalRef)).guards.toEqualTypeOf<'customer-123'>()
+    expectTypeOf(isMatching(undefinedRef)).guards.toBeUndefined()
+    expectTypeOf(isMatching(unionRef)).guards.toEqualTypeOf<string | number>()
+    expectTypeOf(isMatching(objectRef)).guards.toEqualTypeOf<{ id: string }>()
+    expectTypeOf(isMatching(arrayRef)).guards.toEqualTypeOf<string[]>()
+  })
+
+  it('preserves unknown when no pattern or a wildcard pattern is supplied', () => {
+    const { bind, ref } = binding()
+    const { ref: wildcardRef } = binding(P._)
+
+    expectTypeOf(isMatching(bind)).guards.toBeUnknown()
+    expectTypeOf(isMatching(ref)).guards.toBeUnknown()
+    expectTypeOf(isMatching(wildcardRef)).guards.toBeUnknown()
+  })
+
+  it('narrows a selection around a constrained reference', () => {
+    const { bind, ref } = binding(P.string)
+    const input: unknown = { first: 'same', second: 'same' }
+
+    match(input)
+      .with(
+        { first: bind, second: P.select('customerId', ref) },
+        ({ customerId }) => {
+          expectTypeOf(customerId).toBeString()
+
+          return customerId.toUpperCase()
+        }
+      )
+      .otherwise(() => undefined)
+  })
+
+  it('keeps constrained equality branches non-exhaustive', () => {
+    const { bind, ref } = binding(P.string)
+    const input: { first: string; second: string } = {
+      first: 'same',
+      second: 'same'
+    }
+    const result = match(input).with(
+      { first: bind, second: ref },
+      () => 'equal'
+    )
+
+    expectTypeOf(result.exhaustive).not.toBeFunction()
+    expectTypeOf(result.otherwise(() => 'different')).toBeString()
+    expectTypeOf(
+      match<string>('same').with(ref, (value) => value).exhaustive
+    ).not.toBeFunction()
+  })
+
+  it('keeps a partial bind pattern non-exhaustive', () => {
+    const { bind } = binding(P.string.regex(/^customer-/))
+    const result = match<string>('different').with(bind, (value) => value)
+
+    expectTypeOf(result.exhaustive).not.toBeFunction()
+    expectTypeOf(result.otherwise(() => 'fallback')).toBeString()
   })
 
   it('does not claim exhaustiveness for equality-dependent branches', () => {
