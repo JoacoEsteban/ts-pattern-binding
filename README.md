@@ -11,14 +11,13 @@ import { binding } from 'ts-pattern-binding'
 
 const order = { customer: { id: 'customer-123' } }
 const payment = { customer: { id: 'customer-123' } }
-const { bind, ref } = binding(P.string)
 
 const result = match({ order, payment })
   .with(
-    {
+    binding(P.string, ({ bind, ref }) => ({
       order: { customer: { id: bind } },
       payment: { customer: { id: ref } }
-    },
+    })),
     () => true
   )
   .otherwise(() => false)
@@ -33,8 +32,8 @@ Both fields belong to one pattern passed to `.with`.
 `bind` and `ref` are pattern values, so neither needs `()`.
 
 The pattern argument is optional.
-`binding(P.string)` narrows both positions to `string`, including refs in the handler.
-`binding()` accepts any value and leaves unknown inputs as `unknown`.
+`binding(P.string, callback)` narrows both positions to `string`, including refs in the handler.
+`binding(callback)` accepts any value and leaves unknown inputs as `unknown`.
 
 Place `bind` before `ref` in the pattern.
 Create a fresh binding for each match operation.
@@ -142,9 +141,58 @@ Each successful visit to `bind` replaces the stored value.
 A value that fails the supplied pattern leaves the previous binding unchanged.
 `ref` never changes the stored value.
 
+### `binding(callback)` and `binding(pattern, callback)`
+
+Each call creates a `Binding` and calls the callback once.
+`binding` returns the pattern from the callback.
+The callback runs before ts-pattern evaluates that pattern.
+The returned pattern preserves narrowing, selections, and composition.
+
+Without a supplied pattern, the binding accepts any value:
+
+```ts
+import { isMatching } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
+
+const allEqual = isMatching(
+  binding(({ bind, ref }) => [bind, ref, ref]),
+  [42, 42, 42]
+)
+```
+
+`allEqual` is `true`.
+`binding(callback)` leaves unknown inputs as `unknown`.
+`binding(pattern, callback)` applies the supplied pattern to both `bind` and `ref`.
+`binding(undefined, callback)` requires literal `undefined` values.
+
+Nested callbacks create independent bindings:
+
+```ts
+import { P, isMatching } from 'ts-pattern'
+import { binding } from 'ts-pattern-binding'
+
+const pattern = binding(P.string, ({ bind: bindName, ref: sameName }) =>
+  binding(P.number, ({ bind: bindId, ref: sameId }) => [
+    bindName,
+    bindId,
+    sameName,
+    sameId
+  ])
+)
+
+const sameNameAndId = isMatching(pattern, ['customer', 42, 'customer', 42])
+```
+
+`sameNameAndId` is `true`.
+The name and ID have separate bindings and separate runtime patterns.
+
+The callback receives the full `Binding` instance, including `reset()`.
+The returned pattern does not expose that instance.
+`binding()` and `new Binding()` remain available for direct access to the instance.
+
 ### `new Binding(pattern?)`
 
-The class constructor is equivalent to the factory.
+The class constructor is equivalent to the factory without a callback.
 Instances support `instanceof Binding`.
 `new Binding(P.string)` infers string patterns.
 `new Binding()` leaves unknown inputs as `unknown`.
@@ -306,6 +354,10 @@ Input property order does not change pattern order.
 
 Create a fresh binding inside each match operation.
 If a function performs the match, create the binding inside the function.
+
+The callback forms create a binding when they construct the pattern.
+Reuse of the returned pattern reuses the same binding.
+The callback does not run again, and evaluation does not automatically reset the binding.
 
 The matcher API does not notify these patterns when an enclosing branch fails or a match finishes.
 A failed property, reference, or guard does not undo a previous bind.

@@ -98,6 +98,14 @@ assert.equal(isMatching([stringBind, stringRef], [42, 42]), false)
 const { bind: undefinedBind, ref: undefinedRef } = new Binding(undefined)
 assert.equal(isMatching([undefinedBind, undefinedRef], [undefined, undefined]), true)
 assert.equal(isMatching(undefinedBind, 42), false)
+
+const inline = binding(P.string, ({ bind, ref }) => ({ a: bind, b: P.select('id', ref) }))
+assert.equal(match({ a: 'same', b: 'same' })
+  .with(inline, ({ id }) => id)
+  .otherwise(() => 'different'), 'same')
+assert.equal(isMatching(inline, { a: 42, b: 42 }), false)
+assert.equal(isMatching(binding(({ bind, ref }) => [bind, ref]), [NaN, NaN]), true)
+assert.equal(isMatching(binding(undefined, ({ bind, ref }) => [bind, ref]), [undefined, undefined]), true)
 `
 
 writeFileSync(join(directory, 'smoke.mjs'), smoke)
@@ -154,7 +162,19 @@ const { bind: constructorBind, ref: constructorRef } = new Binding(P.string)
 const constructorResult: string = match<unknown>(['same', 'same'])
   .with([constructorBind, constructorRef], ([first, second]) => first + second)
   .otherwise(() => 'different')
-console.log(result, constrainedResult, constructorResult)
+const inlineResult: string = match(input)
+  .with(
+    binding(P.string, ({ bind, ref }) => ({
+      order: { customer: { id: bind } },
+      payment: { customer: { id: P.select('id', ref) } }
+    })),
+    ({ id }, { order: { customer: { id: orderId } } }) => id.toUpperCase() + orderId.toUpperCase()
+  )
+  .otherwise(() => 'different')
+const unconstrainedResult: unknown = match<unknown>([42, 42])
+  .with(binding(({ bind, ref }) => [P.select(bind), ref]), (value) => value)
+  .otherwise(() => undefined)
+console.log(result, constrainedResult, constructorResult, inlineResult, unconstrainedResult)
 `
 
 for (const file of ['consumer.mts', 'consumer.cts']) {

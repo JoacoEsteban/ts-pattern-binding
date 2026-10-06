@@ -254,3 +254,161 @@ describe('public types', () => {
       .otherwise(() => undefined)
   })
 })
+
+describe('inline pattern types', () => {
+  it('narrows both positions and passes the inferred Binding to the callback', () => {
+    const pattern = binding(P.string, (current) => {
+      expectTypeOf(current).toEqualTypeOf<Binding<string, typeof P.string>>()
+
+      const { bind, ref } = current
+
+      return { first: bind, second: ref }
+    })
+
+    match<unknown>({ first: 'same', second: 'same' })
+      .with(pattern, ({ first, second }) => {
+        expectTypeOf(first).toBeString()
+        expectTypeOf(second).toBeString()
+
+        return second.toUpperCase()
+      })
+      .otherwise(() => undefined)
+  })
+
+  it('preserves unknown without a supplied pattern', () => {
+    const pattern = binding((current) => {
+      expectTypeOf(current).toEqualTypeOf<Binding>()
+
+      const { bind, ref } = current
+
+      return [bind, ref]
+    })
+
+    expectTypeOf(isMatching(pattern)).guards.toEqualTypeOf<[unknown, unknown]>()
+  })
+
+  it('infers literal, undefined, union, object, and array constraints', () => {
+    const literal = binding('customer-123', ({ bind, ref }) => [bind, ref])
+    const undefinedPattern = binding(undefined, ({ bind, ref }) => [bind, ref])
+    const union = binding(P.union(P.string, P.number), ({ bind, ref }) => [
+      bind,
+      ref
+    ])
+    const object = binding({ id: P.string }, ({ bind, ref }) => [bind, ref])
+    const array = binding(P.array(P.string), ({ bind, ref }) => [bind, ref])
+
+    expectTypeOf(isMatching(literal)).guards.toEqualTypeOf<
+      ['customer-123', 'customer-123']
+    >()
+    expectTypeOf(isMatching(undefinedPattern)).guards.toEqualTypeOf<
+      [undefined, undefined]
+    >()
+    expectTypeOf(isMatching(union)).guards.toEqualTypeOf<
+      [string | number, string | number]
+    >()
+    const [objectBind, objectRef] = object
+
+    expectTypeOf(isMatching(objectBind)).guards.toEqualTypeOf<{ id: string }>()
+    expectTypeOf(isMatching(objectRef)).guards.toEqualTypeOf<{ id: string }>()
+    expectTypeOf(isMatching(array)).guards.toEqualTypeOf<[string[], string[]]>()
+  })
+
+  it('preserves the original input and callback pattern literals', () => {
+    type Input = {
+      readonly first: { readonly id: string; readonly extra: number }
+      readonly second: { readonly id: string }
+      readonly status: 'ready' | 'pending'
+    }
+    const input: Input = {
+      first: { id: 'same', extra: 42 },
+      second: { id: 'same' },
+      status: 'ready'
+    }
+
+    match(input)
+      .with(
+        binding(P.string, ({ bind, ref }) => ({
+          first: { id: bind },
+          second: { id: ref },
+          status: 'ready'
+        })),
+        ({ first: { extra }, status }) => {
+          expectTypeOf(extra).toBeNumber()
+          expectTypeOf(status).toEqualTypeOf<'ready'>()
+
+          return extra
+        }
+      )
+      .otherwise(() => undefined)
+  })
+
+  it('preserves named, anonymous, and array selection types', () => {
+    match<unknown>({ first: 'same', second: 'same' })
+      .with(
+        binding(P.string, ({ bind, ref }) => ({
+          first: bind,
+          second: P.select('id', ref)
+        })),
+        (selection) => {
+          expectTypeOf(selection).toEqualTypeOf<{ id: string }>()
+
+          return selection
+        }
+      )
+      .otherwise(() => undefined)
+    match<unknown>(['same', 'same'])
+      .with(
+        binding(P.string, ({ bind, ref }) => [P.select(bind), ref]),
+        (selection) => {
+          expectTypeOf(selection).toBeString()
+
+          return selection
+        }
+      )
+      .otherwise(() => undefined)
+    match<unknown>([])
+      .with(
+        P.array(
+          binding(P.string, ({ bind, ref }) => [P.select('id', bind), ref])
+        ),
+        (selection) => {
+          expectTypeOf(selection).toEqualTypeOf<{ id: string[] }>()
+
+          return selection
+        }
+      )
+      .otherwise(() => undefined)
+  })
+
+  it('infers independent constraints through nested callbacks', () => {
+    const pattern = binding(P.string, ({ bind: bindName, ref: sameName }) =>
+      binding(P.number, ({ bind: bindId, ref: sameId }) => [
+        bindName,
+        bindId,
+        sameName,
+        sameId
+      ])
+    )
+
+    expectTypeOf(isMatching(pattern)).guards.toEqualTypeOf<
+      [string, number, string, number]
+    >()
+  })
+
+  it('keeps equality and partial guard branches non-exhaustive', () => {
+    const equality = match<{ first: string; second: string }>({
+      first: 'same',
+      second: 'same'
+    }).with(
+      binding(P.string, ({ bind, ref }) => ({ first: bind, second: ref })),
+      () => true
+    )
+    const partial = match<string>('different').with(
+      binding(P.string.regex(/^customer-/), ({ bind }) => bind),
+      () => true
+    )
+
+    expectTypeOf(equality.exhaustive).not.toBeFunction()
+    expectTypeOf(partial.exhaustive).not.toBeFunction()
+  })
+})

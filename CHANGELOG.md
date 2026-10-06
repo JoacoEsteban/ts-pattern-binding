@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Add `binding(callback)` and `binding(pattern, callback)` to construct patterns without external binding declarations.
+- Preserve pattern inference, selections, composition, and the existing binding lifecycle in callback forms.
+
 ## 0.2.0
 
 - Accept an optional ts-pattern pattern in `binding` and `new Binding`.

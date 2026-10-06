@@ -1,6 +1,6 @@
 import fc from 'fast-check'
 import { P, isMatching, match } from 'ts-pattern'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { Binding, binding } from '../src/index.js'
 
@@ -207,6 +207,182 @@ describe('binding', () => {
       }),
       { numRuns: 500 }
     )
+  })
+})
+
+describe('inline patterns', () => {
+  it.each([
+    ['same', 'same', true],
+    ['first', 'second', false],
+    [42, 42, false]
+  ])(
+    'matches constrained nested values %s and %s',
+    (first, second, expected) => {
+      const result = match({
+        order: { customer: { id: first } },
+        payment: { customer: { id: second } }
+      })
+        .with(
+          binding(P.string, ({ bind, ref }) => ({
+            order: { customer: { id: bind } },
+            payment: { customer: { id: ref } }
+          })),
+          () => true
+        )
+        .otherwise(() => false)
+
+      expect(result).toBe(expected)
+    }
+  )
+
+  it('agrees with Object.is without a supplied constraint', () => {
+    const pattern = binding(({ bind, ref }) => [bind, ref, ref])
+
+    fc.assert(
+      fc.property(fc.anything(), fc.anything(), (left, right) => {
+        expect(isMatching(pattern, [left, left, right])).toBe(
+          Object.is(left, right)
+        )
+      }),
+      { numRuns: 1000 }
+    )
+  })
+
+  it('builds once and reuses the pattern across match operations', () => {
+    const create = vi.fn(({ bind, ref }: Binding) => ({
+      first: bind,
+      second: ref
+    }))
+    const pattern = binding(create)
+    const equal = isMatching(pattern)
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(equal({ first: 'same', second: 'same' })).toBe(true)
+    expect(equal({ first: 'next', second: 'same' })).toBe(false)
+    expect(equal({ first: 'next', second: 'next' })).toBe(true)
+    expect(create).toHaveBeenCalledOnce()
+  })
+
+  it('distinguishes an omitted constraint from literal undefined', () => {
+    const unconstrained = binding(({ bind, ref }) => [bind, ref])
+    const constrained = binding(undefined, ({ bind, ref }) => [bind, ref])
+
+    expect(isMatching(unconstrained, [42, 42])).toBe(true)
+    expect(isMatching(constrained, [42, 42])).toBe(false)
+    expect(isMatching(constrained, [undefined, undefined])).toBe(true)
+  })
+
+  it('passes a Binding instance with stable matchers and reset', () => {
+    const pattern = binding(P.string, (current) => {
+      const { bind, ref } = current
+
+      expect(current).toBeInstanceOf(Binding)
+      expect(isMatching(bind, 'same')).toBe(true)
+      expect(isMatching(ref, 'same')).toBe(true)
+      current.reset()
+      expect(current.bind).toBe(bind)
+      expect(current.ref).toBe(ref)
+      expect(isMatching(ref, 'same')).toBe(false)
+
+      return [bind, ref]
+    })
+
+    expect(isMatching(pattern, ['next', 'next'])).toBe(true)
+  })
+
+  it('preserves named and anonymous selections', () => {
+    const named = match({ first: 'same', second: 'same' })
+      .with(
+        binding(P.string, ({ bind, ref }) => ({
+          first: bind,
+          second: P.select('id', ref)
+        })),
+        ({ id }) => id
+      )
+      .otherwise(() => 'different')
+    const anonymous = match(['same', 'same'])
+      .with(
+        binding(P.string, ({ bind, ref }) => [P.select(bind), ref]),
+        (value) => value
+      )
+      .otherwise(() => 'different')
+
+    expect(named).toBe('same')
+    expect(anonymous).toBe('same')
+  })
+
+  it('composes with arrays and preserves empty array selections', () => {
+    const pattern = P.array(
+      binding(P.number, ({ bind, ref }) => ({
+        first: P.select('id', bind),
+        second: ref
+      }))
+    )
+    const select = (input: unknown) =>
+      match(input)
+        .with(pattern, ({ id }) => id)
+        .otherwise(() => undefined)
+
+    expect(select([])).toEqual([])
+    expect(
+      select([
+        { first: 1, second: 1 },
+        { first: 2, second: 2 }
+      ])
+    ).toEqual([1, 2])
+    expect(
+      select([
+        { first: 1, second: 1 },
+        { first: 2, second: 1 }
+      ])
+    ).toBeUndefined()
+  })
+
+  it('composes independent bindings through nested callbacks', () => {
+    const pattern = binding(P.string, ({ bind: bindName, ref: sameName }) =>
+      binding(P.number, ({ bind: bindId, ref: sameId }) => [
+        bindName,
+        bindId,
+        sameName,
+        sameId
+      ])
+    )
+
+    expect(isMatching(pattern, ['first', 1, 'first', 1])).toBe(true)
+    expect(isMatching(pattern, ['first', 1, 'second', 1])).toBe(false)
+    expect(isMatching(pattern, ['first', 1, 'first', 2])).toBe(false)
+  })
+
+  it('isolates bindings across branches and retains evaluation order', () => {
+    const result = match<{ a: string; enabled: boolean }>({
+      a: 'same',
+      enabled: false
+    })
+      .with(
+        binding(P.string, ({ bind }) => ({ a: bind, enabled: true })),
+        () => 'first'
+      )
+      .with(
+        binding(P.string, ({ ref }) => ({ a: ref })),
+        () => 'second'
+      )
+      .otherwise(() => 'fallback')
+    const reversed = binding(P.string, ({ bind, ref }) => [ref, bind])
+
+    expect(result).toBe('fallback')
+    expect(isMatching(reversed, ['same', 'same'])).toBe(false)
+  })
+
+  it('retains state after a failed union alternative', () => {
+    const pattern = binding(P.string, ({ bind, ref }) =>
+      P.union({ a: bind, enabled: true }, { b: ref })
+    )
+
+    const accepts = isMatching(pattern)
+
+    expect(accepts({ a: 'same', enabled: false, b: 'same' })).toBe(true)
+    expect(accepts({ b: 'same' })).toBe(true)
+    expect(accepts({ b: 'different' })).toBe(false)
   })
 })
 
