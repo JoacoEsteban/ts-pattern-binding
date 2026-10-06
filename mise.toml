@@ -1,0 +1,41 @@
+[tools]
+node = "24.19.0"
+actionlint = "1.7.12"
+shellcheck = "0.11.0"
+
+[tasks.npm]
+description = "Run npm with the selected Node version"
+run = 'PATH="{{ tools.node.path }}/bin:$PATH" npm'
+
+[tasks.install]
+description = "Install the locked dependencies"
+run = "mise run npm -- ci"
+
+[tasks.check]
+description = "Run type, lint, format, coverage, build, and package checks"
+run = ["mise run npm -- run check", "actionlint .github/workflows/ci.yml .github/workflows/release.yml"]
+
+[tasks.test]
+description = "Run the test suite"
+run = "mise run npm -- test"
+
+[tasks."test:watch"]
+description = "Run tests after each edit"
+run = "mise run npm -- run test:watch"
+
+[tasks.build]
+description = "Build ESM, CommonJS, and declarations"
+run = "mise run npm -- run build"
+
+[tasks.format]
+description = "Format the repository"
+run = "mise run npm -- run format"
+
+[tasks.pack]
+description = "Check and pack the release artifact"
+run = ["mise run npm -- run check", "mise run npm -- pack"]
+
+[tasks."release:check"]
+description = "Check that a release tag matches the package version"
+usage = 'arg "<tag>" help="Release tag, for example v0.1.0"'
+run = '"{{ tools.node.path }}/bin/node" ops/check-release.ts "${usage_tag?}"'

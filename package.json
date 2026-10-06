@@ -1,0 +1,83 @@
+{
+  "name": "ts-pattern-binding",
+  "version": "0.1.0",
+  "description": "Bind a value in a ts-pattern pattern and compare later positions, inspired by Elixir's repeated variables.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Joaquin Esteban",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JoacoEsteban/ts-pattern-binding.git"
+  },
+  "homepage": "https://github.com/JoacoEsteban/ts-pattern-binding#readme",
+  "bugs": "https://github.com/JoacoEsteban/ts-pattern-binding/issues",
+  "keywords": [
+    "ts-pattern",
+    "pattern-matching",
+    "binding",
+    "elixir",
+    "typescript"
+  ],
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "peerDependencies": {
+    "ts-pattern": ">=5.9.0 <6"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "check:package": "publint && attw --pack && node ops/check-package.ts",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test:coverage && npm run build && npm run check:package",
+    "prepublishOnly": "npm run check"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "5.0.3",
+    "@arethetypeswrong/cli": "0.18.5",
+    "better-typescript-lib": "2.12.0",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "fast-check": "4.10.2",
+    "prettier": "3.8.3",
+    "publint": "0.3.25",
+    "ts-pattern": "5.9.0",
+    "tsdown": "0.23.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.1",
+    "vitest": "5.0.3"
+  }
+}
