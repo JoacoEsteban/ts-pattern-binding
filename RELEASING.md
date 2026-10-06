@@ -10,9 +10,9 @@ It does not need a stored npm token.
 The first package version needs an authenticated npm account.
 The package must exist before its settings can contain a trusted publisher.
 
-1. Authenticate with `npm login`.
+1. Authenticate with `mise run npm -- login`.
 2. Run `mise run check`.
-3. Run `npm publish --access public`.
+3. Run `mise run npm -- publish --access public`.
 4. Push the `v0.1.0` tag to GitHub.
 
 The workflow compares an existing npm version's integrity with its own tarball.
@@ -22,8 +22,19 @@ This permits the initial tag after the manual first publication.
 
 ## Trusted publisher
 
-Before the first release through OIDC, open [the package settings](https://www.npmjs.com/package/ts-pattern-binding/access).
-Add a trusted publisher with these values:
+Before the first release through OIDC, configure the trusted publisher:
+
+```sh
+mise run npm -- trust github ts-pattern-binding \
+  --file release.yml \
+  --repo JoacoEsteban/ts-pattern-binding \
+  --env npm \
+  --allow-publish \
+  --allow-stage-publish
+```
+
+Complete npm's authentication request.
+The same configuration is available in [the package settings](https://www.npmjs.com/package/ts-pattern-binding/access):
 
 | Field                | Value                                |
 | -------------------- | ------------------------------------ |
@@ -39,6 +50,9 @@ New publisher configurations expire after two days without a successful publicat
 An integrity check that skips a duplicate publication does not activate the publisher.
 The first manual publication does not contain GitHub provenance.
 Future publications from this public repository receive provenance through OIDC.
+
+The `0.1.0` release bootstrapped the package through manual publishing.
+The `0.1.1` release validates trusted publishing and adds provenance.
 
 ## Later releases
 

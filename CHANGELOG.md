@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Publish through GitHub Actions with npm provenance.
+- Document trusted publisher setup through the npm CLI.
+
 ## 0.1.0
 
 - Add `binding()` and the `Binding` class.
